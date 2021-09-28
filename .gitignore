@@ -129,3 +129,13 @@ dmypy.json
 .pyre/
 Keys/
 .idea/
+
+TestObjects/Crypt
+!TestObjects/Crypt/test.bin
+
+TestObjects/In
+!TestObjects/In/test.mp4
+
+TestObjects/Out
+!TestObjects/Out/test.mp4
+
