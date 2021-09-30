@@ -36,7 +36,7 @@ class Connection:
 
             file = bytearray()
             while True:
-                request = self.conn.recv(104857600)
+                request = self.conn.recv(2*28)
                 if not request:
                     print("Error, incomplete file")
                     return

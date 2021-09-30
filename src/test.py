@@ -23,6 +23,18 @@ def cryptoTest():
         with open(join(join(testDirs['root'], testDirs['output']), "test.gif"), "wb") as destFile:
             destFile.write(test.decrypt(origFile.read()))
 
+def largeCryptTest():
+    test = CrModule()
+
+    if exists(join("Keys", "pass.bin")):
+        test.auth("pwd")
+    else:
+        test.reg("pwd")
+
+    symKey, sig = test.largeEncrypt(
+        join(join(testDirs['root'], testDirs['input']), "test.gif"),
+        join(join(testDirs['root'], testDirs['cr']), "test.bin")
+    )
 
 def sockTest():
     if sys.argv[1] == "client":
