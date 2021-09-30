@@ -127,15 +127,15 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-Keys/
+src/Keys/
 .idea/
 
-TestObjects/Crypt
-!TestObjects/Crypt/test.bin
+src/TestObjects/Crypt
+!src/TestObjects/Crypt/test.bin
 
-TestObjects/In
-!TestObjects/In/test.mp4
+src/TestObjects/In
+!src/TestObjects/In/test.gif
 
-TestObjects/Out
-!TestObjects/Out/test.mp4
+src/TestObjects/Out
+!src/TestObjects/Out/test.gif
 
