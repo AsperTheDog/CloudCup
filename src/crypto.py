@@ -17,14 +17,27 @@ class CrModule:
         self.sig = None
         self.keys = {}
 
-    def startEncrypt(self, key, iv):
+    def startEncrypt(self, pubKey=None):
+        key = os.urandom(32)
+        iv = os.urandom(16)
         self.hash = hashes.SHA256()
         self.hasher = hashes.Hash(self.hash)
         self.aes = Cipher(algorithms.AES(key), modes.CBC(iv))
         self.cypher = self.aes.encryptor()
         self.padder = symPadd.PKCS7(128).padder()
-        self.keys['aes'] = (key, iv)
-        pass
+
+        if not pubKey:
+            pubKey = self.keys['public']
+
+        symKey = key + iv
+        symKey = pubKey.encrypt(
+            symKey,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None)
+        )
+        return symKey
 
     def addEncrypt(self, chunk):
         self.hasher.update(chunk)
@@ -43,38 +56,28 @@ class CrModule:
         chunk = self.padder.update(chunk) + self.padder.finalize()
         ct = self.cypher.update(chunk) + self.cypher.finalize()
 
-        key, iv = self.keys["aes"]
-        symKey = key + iv
-        symKey = self.keys['public'].encrypt(
-            symKey,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None)
-        )
-        return ct, sig, symKey
+        return ct, sig
 
     def largeEncrypt(self, sourceFilename, destFilename):
         if 'private' not in self.keys:
             print("Encryption error, user not logged in")
             return
-        key = os.urandom(32)
-        iv = os.urandom(16)
-        self.startEncrypt(key, iv)
+        symKey = self.startEncrypt()
         with open(sourceFilename, "rb") as origFile:
             with open(destFilename, "wb") as destFile:
                 while True:
                     chunk = origFile.read(2 ** 28)
+                    print("encrypting", len(chunk))
                     if len(chunk) == 2 ** 28:
                         ct = self.addEncrypt(chunk)
                         destFile.write(ct)
                     else:
-                        ct, sig, symKey = self.endEncrypt(chunk)
+                        ct, sig = self.endEncrypt(chunk)
                         destFile.write(ct)
                         break
         return symKey, sig
 
-    def startDecrypt(self, symKey, sig):
+    def startDecrypt(self, symKey):
         symKey = self.keys['private'].decrypt(
             symKey,
             padding.OAEP(
@@ -100,17 +103,19 @@ class CrModule:
         ct = self.padder.update(ct) + self.padder.finalize()
         return ct
 
-    def verify(self, filename):
+    def verify(self, filename, sig):
         with open(filename, "rb") as file:
             while True:
                 chunk = file.read(2**28)
+                print("Verifying", len(chunk))
                 self.hasher.update(chunk)
-                if chunk < 2**28:
+                if len(chunk) < 2**28:
                     break
         try:
-            self.keys['private'].verify(
-                self.sig,
-                self.hasher.finalize(),
+            digest = self.hasher.finalize()
+            self.keys['public'].verify(
+                sig,
+                digest,
                 padding.PSS(
                     mgf=padding.MGF1(hashes.SHA256()),
                     salt_length=padding.PSS.MAX_LENGTH),
@@ -123,12 +128,13 @@ class CrModule:
     def largeDecrypt(self, sourceFilename, destFilename, symKey, sig):
         if 'private' not in self.keys:
             print("Decryption error, user not logged in")
-            return
-        self.startDecrypt(symKey, sig)
+            return False
+        self.startDecrypt(symKey)
         with open(sourceFilename, "rb") as origFile:
             with open(destFilename, "wb") as destFile:
                 while True:
                     chunk = origFile.read(2 ** 28)
+                    print("Decrypting", len(chunk))
                     if len(chunk) == 2 ** 28:
                         ct = self.addDecrypt(chunk)
                         destFile.write(ct)
@@ -136,7 +142,7 @@ class CrModule:
                         ct = self.endDecrypt(chunk)
                         destFile.write(ct)
                         break
-        return self.verify(destFilename)
+        return self.verify(destFilename, sig)
 
     def encrypt(self, file):
         if 'private' not in self.keys:
