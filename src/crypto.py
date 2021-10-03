@@ -1,5 +1,5 @@
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.asymmetric import rsa, padding, utils
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives import padding as symPadd
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -9,8 +9,140 @@ import os
 
 class CrModule:
     def __init__(self):
+        self.hash = None
+        self.hasher = None
+        self.aes = None
+        self.cypher = None
+        self.padder = None
+        self.sig = None
         self.keys = {}
-        pass
+
+    def startEncrypt(self, pubKey=None):
+        key = os.urandom(32)
+        iv = os.urandom(16)
+        self.hash = hashes.SHA256()
+        self.hasher = hashes.Hash(self.hash)
+        self.aes = Cipher(algorithms.AES(key), modes.CBC(iv))
+        self.cypher = self.aes.encryptor()
+        self.padder = symPadd.PKCS7(128).padder()
+
+        if not pubKey:
+            pubKey = self.keys['public']
+
+        symKey = key + iv
+        symKey = pubKey.encrypt(
+            symKey,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None)
+        )
+        return symKey
+
+    def addEncrypt(self, chunk):
+        self.hasher.update(chunk)
+        ct = self.cypher.update(chunk)
+        return ct
+
+    def endEncrypt(self, chunk):
+        self.hasher.update(chunk)
+        sig = self.keys['private'].sign(
+            self.hasher.finalize(),
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH),
+            utils.Prehashed(self.hash))
+
+        chunk = self.padder.update(chunk) + self.padder.finalize()
+        ct = self.cypher.update(chunk) + self.cypher.finalize()
+
+        return ct, sig
+
+    def largeEncrypt(self, sourceFilename, destFilename):
+        if 'private' not in self.keys:
+            print("Encryption error, user not logged in")
+            return
+        symKey = self.startEncrypt()
+        with open(sourceFilename, "rb") as origFile:
+            with open(destFilename, "wb") as destFile:
+                while True:
+                    chunk = origFile.read(2 ** 28)
+                    print("encrypting", len(chunk))
+                    if len(chunk) == 2 ** 28:
+                        ct = self.addEncrypt(chunk)
+                        destFile.write(ct)
+                    else:
+                        ct, sig = self.endEncrypt(chunk)
+                        destFile.write(ct)
+                        break
+        return symKey, sig
+
+    def startDecrypt(self, symKey):
+        symKey = self.keys['private'].decrypt(
+            symKey,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            ))
+
+        key, iv = symKey[:32], symKey[32:]
+
+        self.hash = hashes.SHA256()
+        self.hasher = hashes.Hash(self.hash)
+        self.aes = Cipher(algorithms.AES(key), modes.CBC(iv))
+        self.cypher = self.aes.decryptor()
+        self.padder = symPadd.PKCS7(128).unpadder()
+        self.keys['aes'] = (key, iv)
+
+    def addDecrypt(self, chunk):
+        return self.cypher.update(chunk)
+
+    def endDecrypt(self, chunk):
+        ct = self.cypher.update(chunk) + self.cypher.finalize()
+        ct = self.padder.update(ct) + self.padder.finalize()
+        return ct
+
+    def verify(self, filename, sig):
+        with open(filename, "rb") as file:
+            while True:
+                chunk = file.read(2**28)
+                print("Verifying", len(chunk))
+                self.hasher.update(chunk)
+                if len(chunk) < 2**28:
+                    break
+        try:
+            digest = self.hasher.finalize()
+            self.keys['public'].verify(
+                sig,
+                digest,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH),
+                utils.Prehashed(self.hash))
+        except InvalidSignature:
+            print("Error while decrypting the file, signature error")
+            return False
+        return True
+
+    def largeDecrypt(self, sourceFilename, destFilename, symKey, sig):
+        if 'private' not in self.keys:
+            print("Decryption error, user not logged in")
+            return False
+        self.startDecrypt(symKey)
+        with open(sourceFilename, "rb") as origFile:
+            with open(destFilename, "wb") as destFile:
+                while True:
+                    chunk = origFile.read(2 ** 28)
+                    print("Decrypting", len(chunk))
+                    if len(chunk) == 2 ** 28:
+                        ct = self.addDecrypt(chunk)
+                        destFile.write(ct)
+                    else:
+                        ct = self.endDecrypt(chunk)
+                        destFile.write(ct)
+                        break
+        return self.verify(destFilename, sig)
 
     def encrypt(self, file):
         if 'private' not in self.keys:
