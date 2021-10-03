@@ -90,21 +90,22 @@ def bigCryptoSockTest():
                 size = data[2]
                 break
         sizeCount = 0
-        with open(join(join(testDirs['root'], testDirs['output']), data[0]), "wb") as destFile:
+        filename = data[0]
+        with open(join(join(testDirs['root'], testDirs['output']), filename), "wb") as destFile:
             while True:
                 data, ttype = con.receive()
                 if ttype == transferType.FILE:
                     if not data[1]:
                         sizeCount += len(data[0])
                         if sizeCount >= size:
-                            chunk = cr.endEncrypt(data[0])
+                            chunk = cr.endDecrypt(data[0])
                         else:
                             chunk = cr.addDecrypt(data[0])
                         destFile.write(chunk)
                     else:
                         sig = data[0]
                         break
-        if not cr.verify(join(join(testDirs['root'], testDirs['output']), "test.mp4"), sig):
+        if not cr.verify(join(join(testDirs['root'], testDirs['output']), filename), sig):
             print("Invalid file")
         else:
             print("Transation complete!!")
